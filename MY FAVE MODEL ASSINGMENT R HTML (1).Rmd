@@ -1,0 +1,310 @@
+---
+title: "Introducing Patch Preference to Levins Metapopulation Model (1969)"
+author: Martina Reina Canitrot (2215336)
+output: html_document
+date: "22-04-2024"
+---
+
+```{r setup, include=FALSE}
+chooseCRANmirror(ind = 1)
+install.packages("knitr")
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+<span style="font-size: large;">Introducing Patch Preference to Levins Metapopulation Model (1969).</span>
+
+<span style="font-size: medium;">This document features a version of the Levins metapopulation model, originally aiming to simulate the rate of change in metapopulation size, measured by the fraction of occupied patches at the time.</span>
+
+The Metapopulation Patch Preference model assumes:  
+
+1.	Patches are connected allowing dispersal of individuals between them, either physically (i.e. stepping stones) or functionally (i.e. migration, seed dispersal).
+  a.	This is influenced by preference parameter (v) influencing the           dispersal patter of individuals.
+
+2.	Density-dependent effects on population growth within each patch. Where growth rate of population changes as a function of its population density
+
+3.	Parameters c, e and T remain constant over time and patches when v is changing.
+
+Model Equation:
+
+$\frac{dN}{dt} = cN\left(1-\frac{N}{T}+\frac{T-N}{T} \cdot \frac{1}{v+1}\right)-eN$
+
+The model code:
+```{r}
+#dN <- c * N * (1 - N/T - (T-N)/T * (1/(v+1))) - e * N
+```
+
+
+Download the necessary packages 
+```{r}
+install.packages("ggplot2")
+library(ggplot2)
+install.packages("deSolve")
+library(deSolve)
+```
+
+The diagrams below are used as visual illustrations of theoretical patch dynamics showing the difference between patch dynamics between the original Levins model (1969) and our reformed patch preference model shown above, where dispersers may favour one patch over the other due to more favourable conditions.
+
+
+### Random Dispersal
+```{r}
+#DIAGRAM RANDOM DISPERSAL
+patches <- data.frame(
+  patch = c("Patch 1", "Patch 2", "Patch 3"),
+  x = c(1, 2, 3),
+  y = c(1, 3, 2)
+)
+
+movement <- data.frame(
+  from = c("Patch 1", "Patch 1", "Patch 2", "Patch 2", "Patch 3"),
+  to = c("Patch 2", "Patch 3", "Patch 1", "Patch 3", "Patch 1")
+)
+
+movement_coords <- merge(movement, patches, by.x = "from", by.y = "patch")
+movement_coords <- merge(movement_coords, patches, by.x = "to", by.y = "patch", suffixes = c("_from", "_to"))
+
+ggplot() +
+  geom_point(data = patches, aes(x = x, y = y), size = 5, shape = 21, fill = "grey", color = "black") +
+  geom_text(data = patches, aes(x = x, y = y, label = patch), vjust = -1) +
+  geom_curve(data = movement_coords, aes(x = x_from, y = y_from,
+                                         xend = x_to, yend = y_to),
+             curvature = 0.2, arrow = arrow(length = unit(0.3, "cm"), type = "closed"),
+             color = "blue", size = 0.7) +
+  labs(x = "X", y = "Y")
+```
+
+
+### Directed Dispersal to 'Patch 2'
+```{r}
+#DIAGRAM SHOWING DIRECT DISPERSAL TO PATCH 2
+patches <- data.frame(
+  patch = c("Patch 1", "Patch 2", "Patch 3"),
+  x = c(1, 2, 3),
+  y = c(1, 3, 2)
+)
+
+movement <- data.frame(
+  from = c("Patch 1", "Patch 3", "Patch 1", "Patch 3"),
+  to = c("Patch 2", "Patch 2", "Patch 2", "Patch 2")
+)
+
+movement_coords <- merge(movement, patches, by.x = "from", by.y = "patch")
+movement_coords <- merge(movement_coords, patches, by.x = "to", by.y = "patch", suffixes = c("_from", "_to"))
+
+ggplot() +
+  geom_point(data = patches, aes(x = x, y = y), size = 5, shape = 21, fill = "grey", color = "black") +
+  geom_text(data = patches, aes(x = x, y = y, label = patch), vjust = -1) +
+  geom_curve(data = movement_coords[movement_coords$from == "Patch 1",], aes(x = x_from, y = y_from,
+                                                                             xend = 2, yend = 3),
+             curvature = 0.2, arrow = arrow(length = unit(0.3, "cm"), type = "closed"),
+             color = "blue", size = 0.7) +
+  geom_curve(data = movement_coords[movement_coords$from == "Patch 1",], aes(x = x_from, y = y_from,
+                                                                             xend = 2, yend = 3),
+             curvature = -0.2, arrow = arrow(length = unit(0.3, "cm"), type = "closed"),
+             color = "blue", size = 0.7) +
+  geom_curve(data = movement_coords[movement_coords$from == "Patch 3",], aes(x = x_from, y = y_from,
+                                                                             xend = 2, yend = 3),
+             curvature = 0.2, arrow = arrow(length = unit(0.3, "cm"), type = "closed"),
+             color = "blue", size = 0.7) +
+  geom_curve(data = movement_coords[movement_coords$from == "Patch 3",], aes(x = x_from, y = y_from,
+                                                                             xend = 2, yend = 3),
+             curvature = -0.2, arrow = arrow(length = unit(0.3, "cm"), type = "closed"),
+             color = "blue", size = 0.7) +
+  labs(x = "X", y = "Y")
+```
+
+
+### Population Dynamics
+```{r}
+# Define the model function
+habitat_model <- function(time, N, params) {
+  with(as.list(params), {
+    dN <- c * N * (1 - N/T - (T-N)/T * (1/(v+1))) - e * N  
+    return(list(dN))
+  })
+}
+
+# Set parameters
+c <- 0.125        # Colonization rate constant
+e <- 0.05       # Rate at which patches become empty
+T <- 100        # Carrying capacity
+v <- 4        # Preference parameter
+
+# Initial population size 
+N0 <- 10        
+
+# Time vector
+times <- seq(0, 100, by = 0.1)
+
+# Parameters list
+params <- list(c = c, e = e, T = T, v = v)
+
+# Solve the differential equation
+output <- ode(y = N0, times = times, func = habitat_model, parms = params)
+
+# Create a data frame for plotting
+df <- as.data.frame(output)
+colnames(df) <- c("time", "N")  # Rename columns if necessary
+
+# Plot the population dynamics
+ggplot(df, aes(x = time, y = N)) +
+  geom_line() +
+  labs(x = "Time", y = "Population size") +
+  theme_minimal()
+```
+
+
+### Frequency Distribution of Population Dynamics
+```{r}
+par(mfrow= c(1,1))
+habitat_model <- function(time, N, params) {
+  with(as.list(params), {
+    dN <- c * N * (1 - N/T - (T-N)/T * (1/(v+1))) - e * N  
+    return(dN)
+  })
+}
+
+# Set parameters
+c <- 0.125      
+e <- 0.05       
+T <- 100       
+v <- 4
+
+# Set the range of N values
+N_values <- seq(0, T, length.out = 1000)
+
+# Calculate dN/dt for each N value
+dN_dt_values <- habitat_model(NULL, N_values, list(c = c, T = T, e = e, v = v))
+hist(dN_dt_values, breaks = 20, xlab = "dN/dt", ylab = "Frequency")
+```
+
+
+### Population Dynamics for Differing Colonisation Rates 'c'
+```{r}
+habitat_model <- function(time, N, params) {
+  with(as.list(params), {
+    dN <- c * N * (1 - N/T - (T-N)/T * (1/(v+1))) - e * N  
+    return(list(dN))
+  })
+}
+simulate_population <- function(colonization_rate) {
+  # Set parameters
+  params <- list(c = colonization_rate, e = 0.05, T = 100, v = 0.5)
+  
+  # Solve the differential equation
+  output <- ode(y = N0, times = times, func = habitat_model, parms = params)
+  
+  # Data frame for plotting
+  df <- as.data.frame(output)
+  colnames(df) <- c("time", "N")
+  df$colonization_rate <- colonization_rate
+  
+  return(df)
+}
+
+# Initial conditions and time vector
+N0 <- 10
+times <- seq(0, 100, by = 0.1)
+
+# Simulate population dynamics for different colonization rates
+colonization_rates <- c(0, 0.5, 1)
+population_data <- lapply(colonization_rates, simulate_population)
+
+population_df <- do.call(rbind, population_data)
+
+# Plot population dynamics for different colonization rates
+ggplot(population_df, aes(x = time, y = N, color = factor(colonization_rate))) +
+  geom_line() +
+  labs(x = "Time", y = "Population size", color = "Colonization rate") +
+  theme_minimal()
+```
+
+
+### Population dynamics for differing preference rates 'v'
+```{r}
+# Population dynamics for a given preference parameter
+simulate_population_v <- function(preference_parameter) {
+  # Set parameters
+  params <- list(c = 0.125, e = 0.05, T = 50, v = preference_parameter)
+  
+  # Solve the differential equation
+  output <- ode(y = N0, times = times, func = habitat_model, parms = params)
+  
+  # Create a data frame for plotting
+  df <- as.data.frame(output)
+  colnames(df) <- c("time", "N")
+  
+  # Add preference parameter as a column for plotting
+  df$preference_parameter <- preference_parameter
+  
+  return(df)
+}
+
+# Set preference parameter values
+preference_parameters <- c(0, 1, 4)
+
+# Simulate population dynamics for different preference parameter values
+population_data_v <- lapply(preference_parameters, simulate_population_v)
+
+# Combine population data for varying preference parameters into a single data frame
+population_df_v <- do.call(rbind, population_data_v)
+
+# Plot population dynamics for different preference parameter values
+ggplot(population_df_v, aes(x = time, y = N, color = factor(preference_parameter))) +
+  geom_line() +
+  labs(x = "Time", y = "Population size", color = "Preference parameter") +
+  theme_minimal()
+```
+
+
+### Population Dynamics of two Connected Patches
+```{r}
+habitat_model <- function(time, N, params) {
+  with(as.list(params), {
+    dN <- c * N * (1 - N/T - (T-N)/T * v/(v+1)) - e * N  
+    return(list(dN))
+  })
+}
+
+set.seed(123)  
+
+tspan = 100
+c = 2
+T = 100
+v = 0.95
+extinction = 0.05
+
+x1 = matrix(0,1, tspan) 
+x2 = matrix(0,1, tspan) 
+x1[1] = runif(1); 
+x2[1] = runif(1);
+for(t in 1:(tspan-1)){
+  
+  x1[t+1] = x1[t]*exp(c*(1-(x1[t]/T)))
+  x2[t+1] = x2[t]*exp(c*(1-(x2[t]/T)))
+  
+  x1disp = v*x1[t+1] 
+  x2disp = v*x2[t+1] 
+  
+  x1[t+1] = x1[t+1] + x2disp - x1disp
+  x2[t+1] = x2[t+1] + x1disp - x2disp
+  
+}
+par(mfrow=c(1,2))
+plot(1:tspan, x1,type='l',col='red', xlab='Time', ylab='Abundance', main
+     = 'Patch 1')
+
+plot(1:tspan, x2,type='l',col='blue', xlab='Time', ylab='Abundance',
+     main = 'Patch 2')
+```
+
+
+
+### Pearsons Correlation Coefficient 
+#### Testing the strength of the relationship between the two patches
+```{r}
+correlation_test <- cor.test(x1, x2)
+print(correlation_test)
+```
+
+
+
